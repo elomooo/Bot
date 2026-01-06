@@ -20,7 +20,7 @@ from telegram.ext import (
 # CONFIG
 # =====================
 
-ADMIN_CHAT_ID = 492853177  # ← твій Telegram ID
+ADMIN_CHAT_ID = 492853177  # ← ТІЛЬКИ твій Telegram user ID
 TOKEN = os.getenv("TOKEN")
 DATA_FILE = "data.json"
 
@@ -30,6 +30,14 @@ if not TOKEN:
 # =====================
 # LOAD / SAVE DATA
 # =====================
+
+def save_data():
+    with open(DATA_FILE, "w", encoding="utf-8") as f:
+        json.dump({
+            "BEER_MENU": BEER_MENU,
+            "NEW_ITEMS": NEW_ITEMS,
+            "PROMOTIONS": PROMOTIONS
+        }, f, ensure_ascii=False, indent=2)
 
 def load_data():
     global BEER_MENU, NEW_ITEMS, PROMOTIONS
@@ -50,17 +58,8 @@ def load_data():
         PROMOTIONS = ["-10% на IPA", "3л Лагеру = 4-й безкоштовно"]
         save_data()
 
-def save_data():
-    data = {
-        "BEER_MENU": BEER_MENU,
-        "NEW_ITEMS": NEW_ITEMS,
-        "PROMOTIONS": PROMOTIONS
-    }
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
-
 # =====================
-# VOLUMES
+# CONSTANTS
 # =====================
 
 VOLUMES = ["0.5л", "1л", "1.5л", "2л"]
@@ -69,7 +68,7 @@ VOLUMES = ["0.5л", "1л", "1.5л", "2л"]
 # KEYBOARDS
 # =====================
 
-def main_menu(user_id: int):
+def main_menu(uid):
     keyboard = [
         [
             InlineKeyboardButton("🍺 Меню", callback_data="menu"),
@@ -83,7 +82,7 @@ def main_menu(user_id: int):
             InlineKeyboardButton("🛒 Замовити", callback_data="order"),
         ]
     ]
-    if user_id == ADMIN_CHAT_ID:
+    if uid == ADMIN_CHAT_ID:
         keyboard.append([InlineKeyboardButton("⚙ Admin", callback_data="admin")])
     return InlineKeyboardMarkup(keyboard)
 
@@ -98,20 +97,11 @@ def admin_menu():
         [InlineKeyboardButton("⬅ Назад", callback_data="back")]
     ])
 
-def delete_menu_keyboard():
-    keyboard = [[InlineKeyboardButton(f"❌ {name}", callback_data=f"delete_{name}")] for name in BEER_MENU]
-    keyboard.append([InlineKeyboardButton("⬅ Назад", callback_data="admin")])
-    return InlineKeyboardMarkup(keyboard)
-
-def delete_promo_keyboard():
-    keyboard = [[InlineKeyboardButton(f"❌ {p}", callback_data=f"delete_promo_{i}")] for i,p in enumerate(PROMOTIONS)]
-    keyboard.append([InlineKeyboardButton("⬅ Назад", callback_data="admin")])
-    return InlineKeyboardMarkup(keyboard)
-
-def delete_new_keyboard():
-    keyboard = [[InlineKeyboardButton(f"❌ {n}", callback_data=f"delete_new_{i}")] for i,n in enumerate(NEW_ITEMS)]
-    keyboard.append([InlineKeyboardButton("⬅ Назад", callback_data="admin")])
-    return InlineKeyboardMarkup(keyboard)
+def delete_keyboard(items, prefix):
+    kb = [[InlineKeyboardButton(f"❌ {i}", callback_data=f"{prefix}{idx}")]
+          for idx, i in enumerate(items)]
+    kb.append([InlineKeyboardButton("⬅ Назад", callback_data="admin")])
+    return InlineKeyboardMarkup(kb)
 
 # =====================
 # COMMANDS
@@ -135,7 +125,7 @@ async def admin(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 # =====================
-# CALLBACK BUTTONS
+# CALLBACKS
 # =====================
 
 async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -144,108 +134,134 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     data = query.data
     uid = query.from_user.id
 
-    # ----- CLIENT -----
+    # ---------- CLIENT ----------
     if data == "menu":
         text = "\n".join([f"{k} — {v}" for k, v in BEER_MENU.items()])
-        await query.edit_message_text(f"🍺 *Меню:*\n\n{text}", parse_mode="Markdown",
-                                      reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅ Назад", callback_data="back")]]))
+        await query.edit_message_text(
+            f"🍺 *Меню:*\n\n{text}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅ Назад", callback_data="back")]])
+        )
+
     elif data == "promo":
         text = "\n".join([f"• {p}" for p in PROMOTIONS])
-        await query.edit_message_text(f"🔥 *Акції:*\n\n{text}", parse_mode="Markdown",
-                                      reply_markup=main_menu(uid))
+        await query.edit_message_text(
+            f"🔥 *Акції:*\n\n{text}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅ Назад", callback_data="back")]])
+        )
+
     elif data == "new":
         text = "\n".join([f"• {n}" for n in NEW_ITEMS])
-        await query.edit_message_text(f"🆕 *Новинки:*\n\n{text}", parse_mode="Markdown",
-                                      reply_markup=main_menu(uid))
+        await query.edit_message_text(
+            f"🆕 *Новинки:*\n\n{text}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅ Назад", callback_data="back")]])
+        )
+
     elif data == "order":
         buttons = [[InlineKeyboardButton(b, callback_data=f"beer_{b}")] for b in BEER_MENU]
         buttons.append([InlineKeyboardButton("⬅ Назад", callback_data="back")])
         await query.edit_message_text("Оберіть пиво:", reply_markup=InlineKeyboardMarkup(buttons))
+
     elif data.startswith("beer_"):
-        beer = data.replace("beer_", "")
-        context.user_data["beer"] = beer
+        context.user_data["beer"] = data.replace("beer_", "")
         buttons = [[InlineKeyboardButton(v, callback_data=f"vol_{v}")] for v in VOLUMES]
         buttons.append([InlineKeyboardButton("⬅ Назад", callback_data="order")])
-        await query.edit_message_text(f"{beer} — обʼєм:", reply_markup=InlineKeyboardMarkup(buttons))
+        await query.edit_message_text("Оберіть обʼєм:", reply_markup=InlineKeyboardMarkup(buttons))
+
     elif data.startswith("vol_"):
-        volume = data.replace("vol_", "")
-        beer = context.user_data["beer"]
-        context.user_data.setdefault("cart", []).append(f"{beer} ({volume})")
-        await query.edit_message_text("✅ Додано в кошик",
-                                      reply_markup=InlineKeyboardMarkup([
-                                          [InlineKeyboardButton("➕ Додати ще", callback_data="order")],
-                                          [InlineKeyboardButton("🛒 Кошик", callback_data="cart")]
-                                      ]))
+        item = f"{context.user_data['beer']} ({data.replace('vol_', '')})"
+        context.user_data.setdefault("cart", []).append(item)
+        await query.edit_message_text(
+            "✅ Додано в кошик",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("➕ Додати ще", callback_data="order")],
+                [InlineKeyboardButton("🛒 Кошик", callback_data="cart")]
+            ])
+        )
+
     elif data == "cart":
         cart = context.user_data.get("cart", [])
         if not cart:
             await query.edit_message_text("🛒 Кошик порожній", reply_markup=main_menu(uid))
             return
         text = "\n".join([f"• {i}" for i in cart])
-        await query.edit_message_text(f"🛒 *Ваш кошик:*\n\n{text}", parse_mode="Markdown",
-                                      reply_markup=InlineKeyboardMarkup([
-                                          [InlineKeyboardButton("✅ Оформити", callback_data="checkout")],
-                                          [InlineKeyboardButton("⬅ Назад", callback_data="back")]
-                                      ]))
+        await query.edit_message_text(
+            f"🛒 *Ваш кошик:*\n\n{text}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ Оформити", callback_data="checkout")],
+                [InlineKeyboardButton("⬅ Назад", callback_data="back")]
+            ])
+        )
+
     elif data == "checkout":
         context.user_data["await_phone"] = True
-        await query.message.reply_text("📞 Надішліть номер телефону",
-                                       reply_markup=ReplyKeyboardMarkup(
-                                           [[KeyboardButton("📞 Надіслати номер", request_contact=True)]],
-                                           resize_keyboard=True,
-                                           one_time_keyboard=True
-                                       ))
+        await query.message.reply_text(
+            "📞 Надішліть номер телефону",
+            reply_markup=ReplyKeyboardMarkup(
+                [[KeyboardButton("📞 Надіслати номер", request_contact=True)]],
+                resize_keyboard=True,
+                one_time_keyboard=True
+            )
+        )
 
-    # ----- ADMIN -----
+    # ---------- ADMIN ----------
     elif uid == ADMIN_CHAT_ID:
         if data == "admin":
             await query.edit_message_text("⚙ *Адмін панель*", parse_mode="Markdown", reply_markup=admin_menu())
+
         elif data == "admin_add":
             context.user_data["admin_action"] = "add"
             await query.message.reply_text("Введіть: Назва=Ціна")
+
         elif data == "admin_delete":
-            if not BEER_MENU:
-                await query.edit_message_text("Меню порожнє", reply_markup=admin_menu())
-                return
-            await query.edit_message_text("❌ Оберіть товар для видалення:", reply_markup=delete_menu_keyboard())
-        elif data.startswith("delete_"):
-            item = data.replace("delete_", "")
-            if item in BEER_MENU:
-                del BEER_MENU[item]
-                save_data()
-            await query.edit_message_text(f"✅ Товар *{item}* видалено", parse_mode="Markdown", reply_markup=admin_menu())
+            await query.edit_message_text("❌ Оберіть товар:", reply_markup=delete_keyboard(list(BEER_MENU.keys()), "del_menu_"))
+
+        elif data.startswith("del_menu_"):
+            idx = int(data.replace("del_menu_", ""))
+            key = list(BEER_MENU.keys())[idx]
+            BEER_MENU.pop(key)
+            save_data()
+            await query.edit_message_text("✅ Видалено", reply_markup=admin_menu())
+
         elif data == "admin_add_promo":
             context.user_data["admin_action"] = "add_promo"
-            await query.message.reply_text("Введіть текст акції для додавання:")
+            await query.message.reply_text("Введіть текст акції")
+
         elif data == "admin_delete_promo":
-            if not PROMOTIONS:
-                await query.edit_message_text("Акції порожні", reply_markup=admin_menu())
-                return
-            await query.edit_message_text("❌ Оберіть акцію для видалення:", reply_markup=delete_promo_keyboard())
-        elif data.startswith("delete_promo_"):
-            index = int(data.replace("delete_promo_", ""))
-            if 0 <= index < len(PROMOTIONS):
-                removed = PROMOTIONS.pop(index)
-                save_data()
-                await query.edit_message_text(f"✅ Акцію *{removed}* видалено", parse_mode="Markdown", reply_markup=admin_menu())
+            await query.edit_message_text("❌ Оберіть акцію:", reply_markup=delete_keyboard(PROMOTIONS, "del_promo_"))
+
+        elif data.startswith("del_promo_"):
+            PROMOTIONS.pop(int(data.replace("del_promo_", "")))
+            save_data()
+            await query.edit_message_text("✅ Видалено", reply_markup=admin_menu())
+
         elif data == "admin_add_new":
             context.user_data["admin_action"] = "add_new"
-            await query.message.reply_text("Введіть текст новинки для додавання:")
-        elif data == "admin_delete_new":
-            if not NEW_ITEMS:
-                await query.edit_message_text("Новинки порожні", reply_markup=admin_menu())
-                return
-            await query.edit_message_text("❌ Оберіть новинку для видалення:", reply_markup=delete_new_keyboard())
-        elif data.startswith("delete_new_"):
-            index = int(data.replace("delete_new_", ""))
-            if 0 <= index < len(NEW_ITEMS):
-                removed = NEW_ITEMS.pop(index)
-                save_data()
-                await query.edit_message_text(f"✅ Новинку *{removed}* видалено", parse_mode="Markdown", reply_markup=admin_menu())
+            await query.message.reply_text("Введіть назву новинки")
 
+        elif data == "admin_delete_new":
+            await query.edit_message_text("❌ Оберіть новинку:", reply_markup=delete_keyboard(NEW_ITEMS, "del_new_"))
+
+        elif data.startswith("del_new_"):
+            NEW_ITEMS.pop(int(data.replace("del_new_", "")))
+            save_data()
+            await query.edit_message_text("✅ Видалено", reply_markup=admin_menu())
+
+    # ---------- BACK (FIXED) ----------
     elif data == "back":
-        await query.edit_message_text("🍻 *BeerTime*\nОберіть дію:", parse_mode="Markdown",
-                                      reply_markup=main_menu(uid))
+        try:
+            await query.message.delete()
+        except:
+            pass
+        await context.bot.send_message(
+            chat_id=query.message.chat_id,
+            text="🍻 *BeerTime*\nОберіть дію:",
+            parse_mode="Markdown",
+            reply_markup=main_menu(uid)
+        )
 
 # =====================
 # TEXT / CONTACT
@@ -255,34 +271,24 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = update.message.from_user.id
     text = update.message.text
 
-    # ---- ADMIN ----
     if uid == ADMIN_CHAT_ID:
         action = context.user_data.get("admin_action")
         if action == "add":
-            try:
-                name, price = text.split("=", 1)
-                BEER_MENU[name.strip()] = price.strip()
-                save_data()
-                context.user_data["admin_action"] = None
-                await update.message.reply_text("✅ Товар додано", reply_markup=main_menu(uid))
-                return
-            except:
-                await update.message.reply_text("❌ Формат: Назва=Ціна")
-                return
+            name, price = text.split("=", 1)
+            BEER_MENU[name.strip()] = price.strip()
+            save_data()
         elif action == "add_promo":
-            PROMOTIONS.append(text.strip())
+            PROMOTIONS.append(text)
             save_data()
-            context.user_data["admin_action"] = None
-            await update.message.reply_text("✅ Акція додана", reply_markup=main_menu(uid))
-            return
         elif action == "add_new":
-            NEW_ITEMS.append(text.strip())
+            NEW_ITEMS.append(text)
             save_data()
-            context.user_data["admin_action"] = None
-            await update.message.reply_text("✅ Новинка додана", reply_markup=main_menu(uid))
+        else:
             return
 
-    # ---- CLIENT PHONE ----
+        context.user_data["admin_action"] = None
+        await update.message.reply_text("✅ Готово", reply_markup=main_menu(uid))
+
     if context.user_data.get("await_phone"):
         context.user_data["phone"] = text
         await finalize_order(update, context)
@@ -300,10 +306,12 @@ async def finalize_order(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.message.from_user
     cart = context.user_data.get("cart", [])
     phone = context.user_data.get("phone")
-    order_text = "\n".join(cart)
 
-    msg = f"📦 *Нове замовлення*\n👤 {user.full_name}\n📞 {phone}\n\n{order_text}"
-    await context.bot.send_message(chat_id=ADMIN_CHAT_ID, text=msg, parse_mode="Markdown")
+    await context.bot.send_message(
+        chat_id=ADMIN_CHAT_ID,
+        text=f"📦 *Нове замовлення*\n👤 {user.full_name}\n📞 {phone}\n\n" + "\n".join(cart),
+        parse_mode="Markdown"
+    )
 
     context.user_data.clear()
     await update.message.reply_text("✅ Замовлення прийнято!", reply_markup=main_menu(user.id))
