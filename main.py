@@ -33,6 +33,7 @@ if not TOKEN:
 
 def load_data():
     global BEER_MENU, NEW_ITEMS, PROMOTIONS
+
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r", encoding="utf-8") as f:
             data = json.load(f)
@@ -40,8 +41,6 @@ def load_data():
             NEW_ITEMS = data.get("NEW_ITEMS", [])
             PROMOTIONS = data.get("PROMOTIONS", [])
     else:
-        # Defaults
-        global BEER_MENU, NEW_ITEMS, PROMOTIONS
         BEER_MENU = {
             "IPA": "60 грн/л",
             "Лагер": "50 грн/л",
