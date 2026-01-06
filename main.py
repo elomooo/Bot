@@ -121,7 +121,7 @@ def delete_new_keyboard():
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.setdefault("cart", [])
     await update.message.reply_text(
-        "🍻 *Вітаємо у Пивʼярні*\nОберіть дію:",
+        "🍻 *BeerTime*\nОберіть дію:",
         parse_mode="Markdown",
         reply_markup=main_menu(update.effective_user.id)
     )
