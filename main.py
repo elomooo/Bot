@@ -67,6 +67,13 @@ def admin_menu():
         [InlineKeyboardButton("⬅ Назад", callback_data="back")]
     ])
 
+def delete_menu_keyboard():
+    keyboard = []
+    for name in BEER_MENU.keys():
+        keyboard.append([InlineKeyboardButton(f"❌ {name}", callback_data=f"delete_{name}")])
+    keyboard.append([InlineKeyboardButton("⬅ Назад", callback_data="admin")])
+    return InlineKeyboardMarkup(keyboard)
+
 # =====================
 # COMMANDS
 # =====================
@@ -184,8 +191,26 @@ async def button(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.message.reply_text("Введіть: Назва=Ціна")
 
     elif data == "admin_delete" and uid == ADMIN_CHAT_ID:
-        context.user_data["admin_action"] = "delete"
-        await query.message.reply_text("Введіть точну назву товару")
+        if not BEER_MENU:
+            await query.edit_message_text(
+                "Меню порожнє",
+                reply_markup=admin_menu()
+            )
+            return
+        await query.edit_message_text(
+            "❌ Оберіть товар для видалення:",
+            reply_markup=delete_menu_keyboard()
+        )
+
+    elif data.startswith("delete_") and uid == ADMIN_CHAT_ID:
+        item = data.replace("delete_", "")
+        if item in BEER_MENU:
+            del BEER_MENU[item]
+        await query.edit_message_text(
+            f"✅ Товар *{item}* видалено",
+            parse_mode="Markdown",
+            reply_markup=admin_menu()
+        )
 
     elif data == "back":
         await query.edit_message_text(
@@ -215,12 +240,6 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 await update.message.reply_text("❌ Формат: Назва=Ціна")
                 return
-
-        elif action == "delete":
-            BEER_MENU.pop(text.strip(), None)
-            context.user_data["admin_action"] = None
-            await update.message.reply_text("❌ Товар видалено", reply_markup=main_menu(uid))
-            return
 
     # ---- CLIENT PHONE ----
     if context.user_data.get("await_phone"):
