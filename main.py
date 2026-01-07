@@ -29,19 +29,32 @@ if not TOKEN:
 
 VOLUMES = ["0.5л", "1л", "1.5л", "2л"]
 
+BEER_MENU = {}
+PROMOTIONS = []
+NEW_ITEMS = []
+
+# ================= DATA LOAD / SAVE =================
+
 def load_data():
     global BEER_MENU, PROMOTIONS, NEW_ITEMS
 
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            data = json.load(f)
-    else:
-        data = {}
+    default_data = {
+        "BEER_MENU": {
+            "IPA": "60 грн/л",
+            "Лагер": "50 грн/л"
+        },
+        "PROMOTIONS": [],
+        "NEW_ITEMS": []
+    }
 
-    BEER_MENU = data.get("BEER_MENU", {
-        "IPA": "60 грн/л",
-        "Лагер": "50 грн/л"
-    })
+    if not os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "w", encoding="utf-8") as f:
+            json.dump(default_data, f, ensure_ascii=False, indent=2)
+
+    with open(DATA_FILE, "r", encoding="utf-8") as f:
+        data = json.load(f)
+
+    BEER_MENU = data.get("BEER_MENU", {})
     PROMOTIONS = data.get("PROMOTIONS", [])
     NEW_ITEMS = data.get("NEW_ITEMS", [])
 
@@ -58,35 +71,17 @@ def save_data():
 def main_menu(uid):
     kb = [
         [InlineKeyboardButton("🍺 Меню", callback_data="menu")],
-        [InlineKeyboardButton("🔥 Акції", callback_data="promo"),
-         InlineKeyboardButton("🆕 Новинки", callback_data="new")],
+        [
+            InlineKeyboardButton("🔥 Акції", callback_data="promo"),
+            InlineKeyboardButton("🆕 Новинки", callback_data="new")
+        ],
         [InlineKeyboardButton("🛒 Замовити", callback_data="order")]
     ]
+
     if uid == ADMIN_CHAT_ID:
         kb.append([InlineKeyboardButton("⚙ Admin", callback_data="admin")])
+
     return InlineKeyboardMarkup(kb)
-
-def back_to_main(uid):
-    return InlineKeyboardMarkup([
-        [InlineKeyboardButton("⬅ Назад", callback_data="back")]
-    ])
-
-# ================= COMMANDS =================
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    context.user_data["cart"] = []
-    await update.message.reply_text(
-        "🍻 BeerTime",
-        reply_markup=main_menu(update.effective_user.id)
-    )
-
-async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_CHAT_ID:
-        return
-    await update.message.reply_text("⚙ Адмін панель", reply_markup=admin_menu())
-
-# ================= ADMIN KEYBOARD =================
 
 def admin_menu():
     return InlineKeyboardMarkup([
@@ -99,6 +94,28 @@ def admin_menu():
         [InlineKeyboardButton("⬅ Назад", callback_data="back")]
     ])
 
+# ================= COMMANDS =================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    context.user_data["cart"] = []
+
+    await update.message.reply_text(
+        "🍻 *BeerTime*\nОберіть дію:",
+        parse_mode="Markdown",
+        reply_markup=main_menu(update.effective_user.id)
+    )
+
+async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_CHAT_ID:
+        return
+
+    await update.message.reply_text(
+        "⚙ *Адмін панель*",
+        parse_mode="Markdown",
+        reply_markup=admin_menu()
+    )
+
 # ================= CALLBACKS =================
 
 async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -107,49 +124,76 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     uid = q.from_user.id
     data = q.data
 
-    # ---------- USER ----------
+    # ===== BACK =====
+    if data == "back":
+        try:
+            await q.message.delete()
+        except:
+            pass
 
+        await context.bot.send_message(
+            chat_id=q.message.chat_id,
+            text="🍻 *BeerTime*\nОберіть дію:",
+            parse_mode="Markdown",
+            reply_markup=main_menu(uid)
+        )
+        return
+
+    # ===== MENU =====
     if data == "menu":
-        text = "\n".join([f"{k} — {v}" for k, v in BEER_MENU.items()])
-        await q.edit_message_text(f"🍺 Меню:\n{text}", reply_markup=back_to_main(uid))
+        text = "\n".join([f"{k} — {v}" for k, v in BEER_MENU.items()]) or "Поки порожньо"
+        await q.message.delete()
+        await context.bot.send_message(
+            chat_id=q.message.chat_id,
+            text=f"🍺 *Меню:*\n\n{text}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅ Назад", callback_data="back")]])
+        )
 
     elif data == "promo":
         text = "\n".join(PROMOTIONS) or "Немає акцій"
-        await q.edit_message_text(f"🔥 Акції:\n{text}", reply_markup=back_to_main(uid))
+        await q.message.delete()
+        await context.bot.send_message(
+            chat_id=q.message.chat_id,
+            text=f"🔥 *Акції:*\n\n{text}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅ Назад", callback_data="back")]])
+        )
 
     elif data == "new":
         text = "\n".join(NEW_ITEMS) or "Немає новинок"
-        await q.edit_message_text(f"🆕 Новинки:\n{text}", reply_markup=back_to_main(uid))
+        await q.message.delete()
+        await context.bot.send_message(
+            chat_id=q.message.chat_id,
+            text=f"🆕 *Новинки:*\n\n{text}",
+            parse_mode="Markdown",
+            reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅ Назад", callback_data="back")]])
+        )
 
-    # ---------- ORDER FLOW ----------
-
+    # ===== ORDER FLOW =====
     elif data == "order":
-        buttons = [
-            [InlineKeyboardButton(name, callback_data=f"beer_{name}")]
-            for name in BEER_MENU
-        ]
+        buttons = [[InlineKeyboardButton(b, callback_data=f"beer_{b}")] for b in BEER_MENU]
         buttons.append([InlineKeyboardButton("⬅ Назад", callback_data="back")])
         await q.edit_message_text("Оберіть пиво:", reply_markup=InlineKeyboardMarkup(buttons))
 
     elif data.startswith("beer_"):
         beer = data.replace("beer_", "")
-        context.user_data["selected_beer"] = beer
+        context.user_data["beer"] = beer
 
-        buttons = [
-            [InlineKeyboardButton(v, callback_data=f"vol_{v}")]
-            for v in VOLUMES
-        ]
+        buttons = [[InlineKeyboardButton(v, callback_data=f"vol_{v}")] for v in VOLUMES]
         buttons.append([InlineKeyboardButton("⬅ Назад", callback_data="order")])
+
         await q.edit_message_text(
-            f"{beer}\nОберіть обʼєм:",
+            f"*{beer}*\nОберіть обʼєм:",
+            parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup(buttons)
         )
 
     elif data.startswith("vol_"):
         volume = data.replace("vol_", "")
-        beer = context.user_data.get("selected_beer")
+        beer = context.user_data.get("beer")
 
-        context.user_data.setdefault("cart", []).append(f"{beer} ({volume})")
+        context.user_data["cart"].append(f"{beer} ({volume})")
 
         await q.edit_message_text(
             "✅ Додано в кошик",
@@ -163,12 +207,13 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "cart":
         cart = context.user_data.get("cart", [])
         if not cart:
-            await q.edit_message_text("🛒 Кошик порожній", reply_markup=back_to_main(uid))
+            await q.edit_message_text("🛒 Кошик порожній", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅ Назад", callback_data="back")]]))
             return
 
         text = "\n".join([f"• {i}" for i in cart])
         await q.edit_message_text(
-            f"🛒 Ваш кошик:\n{text}",
+            f"🛒 *Ваш кошик:*\n\n{text}",
+            parse_mode="Markdown",
             reply_markup=InlineKeyboardMarkup([
                 [InlineKeyboardButton("✅ Оформити", callback_data="checkout")],
                 [InlineKeyboardButton("⬅ Назад", callback_data="back")]
@@ -186,13 +231,46 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         )
 
-    # ---------- ADMIN ----------
-
-    elif uid == ADMIN_CHAT_ID and data == "admin":
+    # ===== ADMIN =====
+    elif data == "admin" and uid == ADMIN_CHAT_ID:
         await q.edit_message_text("⚙ Адмін панель", reply_markup=admin_menu())
 
-    elif data == "back":
-        await q.edit_message_text("🍻 BeerTime", reply_markup=main_menu(uid))
+    elif uid == ADMIN_CHAT_ID and data in ["add_beer", "del_beer", "add_promo", "del_promo", "add_new", "del_new"]:
+        context.user_data["admin_action"] = data
+        await q.message.reply_text("Введіть текст:")
+
+# ================= TEXT =================
+
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    uid = update.effective_user.id
+    text = update.message.text
+    action = context.user_data.get("admin_action")
+
+    if uid == ADMIN_CHAT_ID and action:
+        if action == "add_beer":
+            name, price = text.split("=", 1)
+            BEER_MENU[name.strip()] = price.strip()
+
+        elif action == "del_beer":
+            BEER_MENU.pop(text.strip(), None)
+
+        elif action == "add_promo":
+            PROMOTIONS.append(text)
+
+        elif action == "del_promo" and text in PROMOTIONS:
+            PROMOTIONS.remove(text)
+
+        elif action == "add_new":
+            NEW_ITEMS.append(text)
+
+        elif action == "del_new" and text in NEW_ITEMS:
+            NEW_ITEMS.remove(text)
+
+        save_data()
+        context.user_data["admin_action"] = None
+
+        await update.message.reply_text("✅ Готово", reply_markup=main_menu(uid))
+        return
 
 # ================= CONTACT =================
 
@@ -200,22 +278,21 @@ async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not context.user_data.get("await_phone"):
         return
 
+    user = update.effective_user
     phone = update.message.contact.phone_number
     cart = context.user_data.get("cart", [])
-    user = update.effective_user
-
-    text = "\n".join(cart)
 
     msg = (
-        f"📦 НОВЕ ЗАМОВЛЕННЯ\n"
+        f"📦 *НОВЕ ЗАМОВЛЕННЯ*\n"
         f"👤 {user.full_name}\n"
-        f"📞 {phone}\n\n"
-        f"{text}"
+        f"📞 {phone}\n\n" +
+        "\n".join(cart)
     )
 
     await context.bot.send_message(
         chat_id=ADMIN_CHAT_ID,
-        text=msg
+        text=msg,
+        parse_mode="Markdown"
     )
 
     context.user_data.clear()
@@ -233,6 +310,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_cmd))
     app.add_handler(CallbackQueryHandler(callbacks))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
     app.add_handler(MessageHandler(filters.CONTACT, contact_handler))
 
     app.run_polling()
