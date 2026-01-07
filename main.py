@@ -27,6 +27,8 @@ if not TOKEN:
 
 # ================= DATA =================
 
+VOLUMES = ["0.5л", "1л", "1.5л", "2л"]
+
 def load_data():
     global BEER_MENU, PROMOTIONS, NEW_ITEMS
 
@@ -64,8 +66,27 @@ def main_menu(uid):
         kb.append([InlineKeyboardButton("⚙ Admin", callback_data="admin")])
     return InlineKeyboardMarkup(kb)
 
-def back_kb():
-    return InlineKeyboardMarkup([[InlineKeyboardButton("⬅ Назад", callback_data="back")]])
+def back_to_main(uid):
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("⬅ Назад", callback_data="back")]
+    ])
+
+# ================= COMMANDS =================
+
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    context.user_data["cart"] = []
+    await update.message.reply_text(
+        "🍻 BeerTime",
+        reply_markup=main_menu(update.effective_user.id)
+    )
+
+async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != ADMIN_CHAT_ID:
+        return
+    await update.message.reply_text("⚙ Адмін панель", reply_markup=admin_menu())
+
+# ================= ADMIN KEYBOARD =================
 
 def admin_menu():
     return InlineKeyboardMarkup([
@@ -77,20 +98,6 @@ def admin_menu():
         [InlineKeyboardButton("❌ Видалити новинку", callback_data="del_new")],
         [InlineKeyboardButton("⬅ Назад", callback_data="back")]
     ])
-
-# ================= COMMANDS =================
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    await update.message.reply_text(
-        "🍻 BeerTime",
-        reply_markup=main_menu(update.effective_user.id)
-    )
-
-async def admin_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_CHAT_ID:
-        return
-    await update.message.reply_text("⚙ Адмін панель", reply_markup=admin_menu())
 
 # ================= CALLBACKS =================
 
@@ -104,100 +111,118 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "menu":
         text = "\n".join([f"{k} — {v}" for k, v in BEER_MENU.items()])
-        await q.edit_message_text(f"🍺 Меню:\n{text}", reply_markup=back_kb())
+        await q.edit_message_text(f"🍺 Меню:\n{text}", reply_markup=back_to_main(uid))
 
     elif data == "promo":
         text = "\n".join(PROMOTIONS) or "Немає акцій"
-        await q.edit_message_text(f"🔥 Акції:\n{text}", reply_markup=back_kb())
+        await q.edit_message_text(f"🔥 Акції:\n{text}", reply_markup=back_to_main(uid))
 
     elif data == "new":
         text = "\n".join(NEW_ITEMS) or "Немає новинок"
-        await q.edit_message_text(f"🆕 Новинки:\n{text}", reply_markup=back_kb())
+        await q.edit_message_text(f"🆕 Новинки:\n{text}", reply_markup=back_to_main(uid))
+
+    # ---------- ORDER FLOW ----------
+
+    elif data == "order":
+        buttons = [
+            [InlineKeyboardButton(name, callback_data=f"beer_{name}")]
+            for name in BEER_MENU
+        ]
+        buttons.append([InlineKeyboardButton("⬅ Назад", callback_data="back")])
+        await q.edit_message_text("Оберіть пиво:", reply_markup=InlineKeyboardMarkup(buttons))
+
+    elif data.startswith("beer_"):
+        beer = data.replace("beer_", "")
+        context.user_data["selected_beer"] = beer
+
+        buttons = [
+            [InlineKeyboardButton(v, callback_data=f"vol_{v}")]
+            for v in VOLUMES
+        ]
+        buttons.append([InlineKeyboardButton("⬅ Назад", callback_data="order")])
+        await q.edit_message_text(
+            f"{beer}\nОберіть обʼєм:",
+            reply_markup=InlineKeyboardMarkup(buttons)
+        )
+
+    elif data.startswith("vol_"):
+        volume = data.replace("vol_", "")
+        beer = context.user_data.get("selected_beer")
+
+        context.user_data.setdefault("cart", []).append(f"{beer} ({volume})")
+
+        await q.edit_message_text(
+            "✅ Додано в кошик",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("➕ Додати ще", callback_data="order")],
+                [InlineKeyboardButton("🛒 Кошик", callback_data="cart")],
+                [InlineKeyboardButton("⬅ Назад", callback_data="back")]
+            ])
+        )
+
+    elif data == "cart":
+        cart = context.user_data.get("cart", [])
+        if not cart:
+            await q.edit_message_text("🛒 Кошик порожній", reply_markup=back_to_main(uid))
+            return
+
+        text = "\n".join([f"• {i}" for i in cart])
+        await q.edit_message_text(
+            f"🛒 Ваш кошик:\n{text}",
+            reply_markup=InlineKeyboardMarkup([
+                [InlineKeyboardButton("✅ Оформити", callback_data="checkout")],
+                [InlineKeyboardButton("⬅ Назад", callback_data="back")]
+            ])
+        )
+
+    elif data == "checkout":
+        context.user_data["await_phone"] = True
+        await q.message.reply_text(
+            "📞 Надішліть номер телефону",
+            reply_markup=ReplyKeyboardMarkup(
+                [[KeyboardButton("📞 Надіслати номер", request_contact=True)]],
+                resize_keyboard=True,
+                one_time_keyboard=True
+            )
+        )
 
     # ---------- ADMIN ----------
 
     elif uid == ADMIN_CHAT_ID and data == "admin":
         await q.edit_message_text("⚙ Адмін панель", reply_markup=admin_menu())
 
-    elif uid == ADMIN_CHAT_ID and data == "add_beer":
-        context.user_data["state"] = "add_beer"
-        await q.edit_message_text("Введи:\nНазва,ціна")
-
-    elif uid == ADMIN_CHAT_ID and data == "del_beer":
-        buttons = [
-            [InlineKeyboardButton(name, callback_data=f"delbeer_{name}")]
-            for name in BEER_MENU
-        ]
-        buttons.append([InlineKeyboardButton("⬅ Назад", callback_data="admin")])
-        await q.edit_message_text("Вибери товар:", reply_markup=InlineKeyboardMarkup(buttons))
-
-    elif data.startswith("delbeer_") and uid == ADMIN_CHAT_ID:
-        name = data.replace("delbeer_", "")
-        BEER_MENU.pop(name, None)
-        save_data()
-        await q.edit_message_text("❌ Видалено", reply_markup=admin_menu())
-
-    elif uid == ADMIN_CHAT_ID and data == "add_promo":
-        context.user_data["state"] = "add_promo"
-        await q.edit_message_text("Введи текст акції")
-
-    elif uid == ADMIN_CHAT_ID and data == "del_promo":
-        buttons = [
-            [InlineKeyboardButton(p, callback_data=f"delpromo_{i}")]
-            for i, p in enumerate(PROMOTIONS)
-        ]
-        buttons.append([InlineKeyboardButton("⬅ Назад", callback_data="admin")])
-        await q.edit_message_text("Вибери акцію:", reply_markup=InlineKeyboardMarkup(buttons))
-
-    elif data.startswith("delpromo_") and uid == ADMIN_CHAT_ID:
-        PROMOTIONS.pop(int(data.replace("delpromo_", "")))
-        save_data()
-        await q.edit_message_text("❌ Акцію видалено", reply_markup=admin_menu())
-
-    elif uid == ADMIN_CHAT_ID and data == "add_new":
-        context.user_data["state"] = "add_new"
-        await q.edit_message_text("Введи новинку")
-
-    elif uid == ADMIN_CHAT_ID and data == "del_new":
-        buttons = [
-            [InlineKeyboardButton(n, callback_data=f"delnew_{i}")]
-            for i, n in enumerate(NEW_ITEMS)
-        ]
-        buttons.append([InlineKeyboardButton("⬅ Назад", callback_data="admin")])
-        await q.edit_message_text("Вибери новинку:", reply_markup=InlineKeyboardMarkup(buttons))
-
-    elif data.startswith("delnew_") and uid == ADMIN_CHAT_ID:
-        NEW_ITEMS.pop(int(data.replace("delnew_", "")))
-        save_data()
-        await q.edit_message_text("❌ Новинку видалено", reply_markup=admin_menu())
-
     elif data == "back":
         await q.edit_message_text("🍻 BeerTime", reply_markup=main_menu(uid))
 
-# ================= TEXT HANDLER =================
+# ================= CONTACT =================
 
-async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if update.effective_user.id != ADMIN_CHAT_ID:
+async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.user_data.get("await_phone"):
         return
 
-    state = context.user_data.get("state")
-    text = update.message.text
+    phone = update.message.contact.phone_number
+    cart = context.user_data.get("cart", [])
+    user = update.effective_user
 
-    if state == "add_beer":
-        name, price = text.split(",", 1)
-        BEER_MENU[name.strip()] = price.strip()
-        save_data()
+    text = "\n".join(cart)
 
-    elif state == "add_promo":
-        PROMOTIONS.append(text)
-        save_data()
+    msg = (
+        f"📦 НОВЕ ЗАМОВЛЕННЯ\n"
+        f"👤 {user.full_name}\n"
+        f"📞 {phone}\n\n"
+        f"{text}"
+    )
 
-    elif state == "add_new":
-        NEW_ITEMS.append(text)
-        save_data()
+    await context.bot.send_message(
+        chat_id=ADMIN_CHAT_ID,
+        text=msg
+    )
 
     context.user_data.clear()
-    await update.message.reply_text("✅ Готово", reply_markup=admin_menu())
+    await update.message.reply_text(
+        "✅ Замовлення прийнято!",
+        reply_markup=main_menu(user.id)
+    )
 
 # ================= MAIN =================
 
@@ -208,7 +233,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("admin", admin_cmd))
     app.add_handler(CallbackQueryHandler(callbacks))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+    app.add_handler(MessageHandler(filters.CONTACT, contact_handler))
 
     app.run_polling()
 
