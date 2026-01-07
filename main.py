@@ -3,9 +3,7 @@ import json
 from telegram import (
     Update,
     InlineKeyboardButton,
-    InlineKeyboardMarkup,
-    ReplyKeyboardMarkup,
-    KeyboardButton
+    InlineKeyboardMarkup
 )
 from telegram.ext import (
     Application,
@@ -139,7 +137,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # ===== MENU =====
+    # ===== MENU / PROMO / NEW =====
     if data == "menu":
         text = "\n".join([f"{k} — {v}" for k, v in BEER_MENU.items()]) or "Поки порожньо"
         await q.message.delete()
@@ -170,7 +168,7 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
             reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅ Назад", callback_data="back")]])
         )
 
-    # ===== ORDER FLOW =====
+    # ===== ORDER =====
     elif data == "order":
         buttons = [[InlineKeyboardButton(b, callback_data=f"beer_{b}")] for b in BEER_MENU]
         buttons.append([InlineKeyboardButton("⬅ Назад", callback_data="back")])
@@ -207,7 +205,10 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "cart":
         cart = context.user_data.get("cart", [])
         if not cart:
-            await q.edit_message_text("🛒 Кошик порожній", reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅ Назад", callback_data="back")]]))
+            await q.edit_message_text(
+                "🛒 Кошик порожній",
+                reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton("⬅ Назад", callback_data="back")]])
+            )
             return
 
         text = "\n".join([f"• {i}" for i in cart])
@@ -223,19 +224,18 @@ async def callbacks(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif data == "checkout":
         context.user_data["await_phone"] = True
         await q.message.reply_text(
-            "📞 Надішліть номер телефону",
-            reply_markup=ReplyKeyboardMarkup(
-                [[KeyboardButton("📞 Надіслати номер", request_contact=True)]],
-                resize_keyboard=True,
-                one_time_keyboard=True
-            )
+            "📞 Введіть номер телефону у форматі +380XXXXXXXXX"
         )
 
     # ===== ADMIN =====
     elif data == "admin" and uid == ADMIN_CHAT_ID:
         await q.edit_message_text("⚙ Адмін панель", reply_markup=admin_menu())
 
-    elif uid == ADMIN_CHAT_ID and data in ["add_beer", "del_beer", "add_promo", "del_promo", "add_new", "del_new"]:
+    elif uid == ADMIN_CHAT_ID and data in [
+        "add_beer", "del_beer",
+        "add_promo", "del_promo",
+        "add_new", "del_new"
+    ]:
         context.user_data["admin_action"] = data
         await q.message.reply_text("Введіть текст:")
 
@@ -246,6 +246,7 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text
     action = context.user_data.get("admin_action")
 
+    # ----- ADMIN -----
     if uid == ADMIN_CHAT_ID and action:
         if action == "add_beer":
             name, price = text.split("=", 1)
@@ -268,38 +269,33 @@ async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         save_data()
         context.user_data["admin_action"] = None
-
         await update.message.reply_text("✅ Готово", reply_markup=main_menu(uid))
         return
 
-# ================= CONTACT =================
+    # ----- PHONE INPUT -----
+    if context.user_data.get("await_phone"):
+        phone = text.strip()
+        user = update.effective_user
+        cart = context.user_data.get("cart", [])
 
-async def contact_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not context.user_data.get("await_phone"):
-        return
+        msg = (
+            f"📦 *НОВЕ ЗАМОВЛЕННЯ*\n"
+            f"👤 {user.full_name}\n"
+            f"📞 {phone}\n\n" +
+            "\n".join(cart)
+        )
 
-    user = update.effective_user
-    phone = update.message.contact.phone_number
-    cart = context.user_data.get("cart", [])
+        await context.bot.send_message(
+            chat_id=ADMIN_CHAT_ID,
+            text=msg,
+            parse_mode="Markdown"
+        )
 
-    msg = (
-        f"📦 *НОВЕ ЗАМОВЛЕННЯ*\n"
-        f"👤 {user.full_name}\n"
-        f"📞 {phone}\n\n" +
-        "\n".join(cart)
-    )
-
-    await context.bot.send_message(
-        chat_id=ADMIN_CHAT_ID,
-        text=msg,
-        parse_mode="Markdown"
-    )
-
-    context.user_data.clear()
-    await update.message.reply_text(
-        "✅ Замовлення прийнято!",
-        reply_markup=main_menu(user.id)
-    )
+        context.user_data.clear()
+        await update.message.reply_text(
+            "✅ Замовлення прийнято!",
+            reply_markup=main_menu(user.id)
+        )
 
 # ================= MAIN =================
 
@@ -311,7 +307,6 @@ def main():
     app.add_handler(CommandHandler("admin", admin_cmd))
     app.add_handler(CallbackQueryHandler(callbacks))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
-    app.add_handler(MessageHandler(filters.CONTACT, contact_handler))
 
     app.run_polling()
 
